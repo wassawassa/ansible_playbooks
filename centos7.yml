@@ -1,0 +1,157 @@
+---
+- hosts: centos
+  become: yes
+  vars:
+    logdir: /var/log/app
+    appuser: iapuzzle
+    nginx_user: nginx
+    nginx_worker_process_num: 1
+    nginx_error_log_path: /var/log/nginx/error.log
+    nginx_worker_connections_num: 1024
+  tasks:
+    - name: Install libselinux-python
+      yum: name=libselinux-python state=latest
+
+    - name: SELinuxのDisable設定
+      selinux: state=disabled
+
+    - name: SELinuxのDisable状態の確認
+      shell: getenforce
+      register: selinux_result
+
+    - name: サーバ再起動
+      shell: sleep 2 && shutdown -r now
+      async: 60
+      poll: 10
+#        ignore_erros: true
+      when: selinux_result.stdout != "Disabled"
+
+    - name: サーバ再起動待ち
+      local_action: wait_for host={{ inventory_hostname }} port=22 delay=120
+      when: selinux_result.stdout != "Disabled"
+
+    - yum: name=httpd state=latest
+
+    - name: epelリポジトリインストール
+      yum: name=epel-release state=latest
+
+    - name: remiリポジトリインストール
+      yum:
+        name: http://rpms.famillecollet.com/enterprise/remi-release-7.rpm
+        state: present
+
+# php72が入ってたらここの箇所はスキップしないと毎回phph72をインスト-ルしてしまう
+# AWSのイメージではphpに関する物は何も入ってないのでスキップとする。
+#    - name: 既存phpをすべて削除
+#      yum:
+#        name: php*
+#        state: absent
+
+# 時間かかりすぎるから分けた方が良いかもしれない。
+    - name: PHP7(common, cli)をインスト-ル
+      yum:
+        name: "{{ php_common_packages }}"
+        enablerepo: "remi,remi-php72"
+        state: present
+      vars:
+        php_common_packages:
+        - php-common
+        - php-cli
+
+    - name: PHP7(devel)をインスト-ル
+      yum:
+        name: "{{ php_devel_packages }}"
+        enablerepo: "remi,remi-php72"
+        state: present
+      vars:
+        php_devel_packages:
+        - php-devel
+
+    - name: PHP7(関連モジュール)をインスト-ル
+      yum:
+        name: "{{ php_module_packages }}"
+        enablerepo: "remi,remi-php72"
+        state: present
+      vars:
+        php_module_packages:
+        - php-pdo
+        - php-gd
+        - php-xml
+        - php-mbstring
+        - php-mcrypt
+        - php-memcached
+        - php-pear
+
+
+#    - name: ここで多分composerを入れるけどスキップ
+
+    - name: Postgresql10のリポジトリをインストールする
+      yum:
+        name: https://download.postgresql.org/pub/repos/yum/10/redhat/rhel-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+        state: present
+    - name: Postgresql10をインストールする
+      yum:
+        name: "{{ pgsql_packages }}"
+      vars:
+        pgsql_packages:
+        - postgresql10-server
+        - postgresql10-devel
+
+    - name: Pgroongaをインストールする(1)
+      yum:
+        name: https://packages.groonga.org/centos/groonga-release-latest.noarch.rpm
+        state: present
+
+    - name: Pgroongaをインストールする(2)
+      yum:
+        name: postgresql10-pgroonga
+        state: present
+
+    - name: Pgroongaをインストールする(3)
+      yum:
+        name: groonga-tokenizer-mecab
+        state: present
+
+    - name: リポジトリ管理のためにGitをインストールする
+      yum:
+        name: git
+        state: present
+
+    - name: postgresql10を初期化する。設定ファイルがある場合はスキップ
+      shell: /usr/pgsql-10/bin/postgresql-10-setup initdb
+      args:
+        creates: /var/lib/pgsql/10/data/postgresql.conf
+
+    - name: Postgresql 10 serverのサービスを起動する。
+      systemd:
+        name: postgresql-10
+        state: started
+
+    - name: Postgresql 10 serverのサービスを有効化する。
+      systemd:
+        name: postgresql-10
+        enabled: yes
+
+    - debug:
+        msg: "start postgresql services."
+
+    - name: start httpd
+      systemd:
+        name: httpd
+        state: started
+
+    - name: httpdサービスを有効化する
+      systemd:
+        name: httpd
+        enabled: yes
+
+    - name: Apache TikaのためにOpenJDK1.8をインスト-ルする。
+      yum:
+        name: java-1.8.0-openjdk
+        state: present
+
+    - name: Apache Tikaをインターネットからダウンロードする,チェックサムも見る。
+      get_url:
+        url: http://ftp.jaist.ac.jp/pub/apache/tika/tika-app-1.21.jar
+        dest: /opt/
+        checksum: sha256:0d5f8174942450ab0eaf9f07b286b8ac2c3f3734e69e5fb72fd5be5be8b4e433
