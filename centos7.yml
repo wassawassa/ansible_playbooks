@@ -2,6 +2,7 @@
 - hosts: centos
   become: yes
   vars:
+    composer_checksum: 4e4c1cd74b54a26618699f3190e6f5fc63bb308b13fa660f71f2a2df047c0e17
     logdir: /var/log/app
     appuser: iapuzzle
     nginx_user: nginx
@@ -82,6 +83,21 @@
         - php-memcached
         - php-pear
 
+    - name: composerのダウンロード。パスにファイルがある場合は再実施しない。
+      get_url:
+        url: https://getcomposer.org/download/1.8.5/composer.phar
+        dest: /usr/local/bin/composer.phar
+        checksum: sha256:"{{ composer_checksum }}"
+        mode: 0755
+
+    - name: composerのシンボリックリンクを作成する。
+      file:
+        src: /usr/local/bin/composer.phar
+        dest: /usr/local/bin/composer
+        owner: root
+        group: root
+        state: link
+
 
 #    - name: ここで多分composerを入れるけどスキップ
 
@@ -153,5 +169,5 @@
     - name: Apache Tikaをインターネットからダウンロードする,チェックサムも見る。
       get_url:
         url: http://ftp.jaist.ac.jp/pub/apache/tika/tika-app-1.21.jar
-        dest: /opt/
+        dest: /opt/tika-app-1.21.jar
         checksum: sha256:0d5f8174942450ab0eaf9f07b286b8ac2c3f3734e69e5fb72fd5be5be8b4e433
